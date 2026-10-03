@@ -34,35 +34,25 @@ RUN cd driver-src && \
     sed -i 's/ccflags-y += \${ccflags-y}/# Removed recursive ccflags-y/g' Makefile && \
     sed -i 's/EXTRA_CFLAGS += \${EXTRA_CFLAGS}/# Removed recursive EXTRA_CFLAGS/g' Makefile
 
-# 最小化 kernel 準備
+# 準備 kernel - 編譯 modpost 工具
 RUN cd kernel-src && \
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- defconfig
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- defconfig && \
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- scripts_basic && \
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- scripts/mod/modpost
 
-# 生成必要的配置檔案
-RUN cd kernel-src && \
-    mkdir -p include/config include/generated/uapi/linux && \
-    grep "^CONFIG_" .config > include/config/auto.conf && \
-    echo "#define LINUX_VERSION_CODE 263330" > include/generated/uapi/linux/version.h && \
-    touch include/generated/autoconf.h
-
-# 編譯驅動 - 輸出完整錯誤
+# 編譯驅動
 RUN cd driver-src && \
     make ARCH=arm \
     CROSS_COMPILE=arm-linux-gnueabi- \
     KSRC=../kernel-src \
     KBUILD_EXTRA_SYMBOLS=../kernel-src/Module.symvers \
     EXTRA_CFLAGS="-I$(pwd)" \
-    modules 2>&1 | tee /workspace/build.log || cat /workspace/build.log
+    modules 2>&1 | tee /workspace/build.log
 
-# 蒐集編譯結果並輸出診斷信息
-RUN echo "=== Build Log ===" && \
-    cat /workspace/build.log | tail -50 && \
-    echo "=== Checking for .ko files ===" && \
-    find /workspace/driver-src -name "*.ko" -type f && \
-    mkdir -p /workspace/output && \
-    find /workspace/driver-src -name "*.ko" -type f -exec cp {} /workspace/output/ \; || echo "No .ko files found" && \
-    echo "=== Output directory ===" && \
-    ls -lh /workspace/output/ || echo "Output directory is empty"
+# 蒐集編譯結果
+RUN mkdir -p /workspace/output && \
+    find /workspace/driver-src -name "*.ko" -type f -exec cp {} /workspace/output/ \; && \
+    ls -lh /workspace/output/
 
 EXPOSE 8080
 WORKDIR /workspace/output
