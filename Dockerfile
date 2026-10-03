@@ -38,26 +38,31 @@ RUN cd driver-src && \
 RUN cd kernel-src && \
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- defconfig
 
-# 直接生成必要的配置檔案
+# 生成必要的配置檔案
 RUN cd kernel-src && \
     mkdir -p include/config include/generated/uapi/linux && \
     grep "^CONFIG_" .config > include/config/auto.conf && \
     echo "#define LINUX_VERSION_CODE 263330" > include/generated/uapi/linux/version.h && \
     touch include/generated/autoconf.h
 
-# 編譯驅動
+# 編譯驅動 - 輸出完整錯誤
 RUN cd driver-src && \
     make ARCH=arm \
     CROSS_COMPILE=arm-linux-gnueabi- \
     KSRC=../kernel-src \
     KBUILD_EXTRA_SYMBOLS=../kernel-src/Module.symvers \
     EXTRA_CFLAGS="-I$(pwd)" \
-    modules 2>&1 | head -100
+    modules 2>&1 | tee /workspace/build.log || cat /workspace/build.log
 
-# 蒐集編譯結果
-RUN mkdir -p /workspace/output && \
-    find /workspace/driver-src -name "*.ko" -type f -exec cp {} /workspace/output/ \; || true && \
-    ls -lh /workspace/output/ || echo "No .ko files found"
+# 蒐集編譯結果並輸出診斷信息
+RUN echo "=== Build Log ===" && \
+    cat /workspace/build.log | tail -50 && \
+    echo "=== Checking for .ko files ===" && \
+    find /workspace/driver-src -name "*.ko" -type f && \
+    mkdir -p /workspace/output && \
+    find /workspace/driver-src -name "*.ko" -type f -exec cp {} /workspace/output/ \; || echo "No .ko files found" && \
+    echo "=== Output directory ===" && \
+    ls -lh /workspace/output/ || echo "Output directory is empty"
 
 EXPOSE 8080
 WORKDIR /workspace/output
