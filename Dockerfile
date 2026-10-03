@@ -34,17 +34,17 @@ RUN cd driver-src && \
     sed -i 's/ccflags-y += \${ccflags-y}/# Removed recursive ccflags-y/g' Makefile && \
     sed -i 's/EXTRA_CFLAGS += \${EXTRA_CFLAGS}/# Removed recursive EXTRA_CFLAGS/g' Makefile
 
-# 準備 kernel
+# 完整的 kernel 準備流程
 RUN cd kernel-src && \
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- defconfig
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- defconfig && \
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- oldconfig && \
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- scripts_basic && \
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- prepare || true
 
-# 手動編譯 modpost（跳過 dtc 和其他工具）
-RUN cd kernel-src && \
-    make -C scripts/mod modpost 2>&1 || \
-    (cd scripts/mod && gcc -o modpost modpost.c file.c sumversion.c 2>&1 || true)
-
-# 確保 modpost 存在
-RUN ls -la kernel-src/scripts/mod/modpost || echo "modpost not found, will try alternative"
+# 檢查配置檔案
+RUN echo "=== Checking kernel config ===" && \
+    ls -la kernel-src/include/config/auto.conf && \
+    ls -la kernel-src/include/generated/autoconf.h
 
 # 編譯驅動
 RUN cd driver-src && \
@@ -53,7 +53,7 @@ RUN cd driver-src && \
     KSRC=../kernel-src \
     KBUILD_EXTRA_SYMBOLS=../kernel-src/Module.symvers \
     EXTRA_CFLAGS="-I$(pwd)" \
-    modules
+    modules 2>&1 | tail -100
 
 # 蒐集編譯結果
 RUN mkdir -p /workspace/output && \
