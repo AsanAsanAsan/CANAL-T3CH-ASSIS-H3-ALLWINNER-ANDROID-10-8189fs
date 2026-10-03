@@ -31,15 +31,17 @@ RUN wget -q -O linux-4.9.tar.xz \
 RUN cp Module.symvers kernel-src/ && \
     cp Module.symvers driver-src/
 
-# 修復 Linux 4.9.170 中的 dtc 編譯問題
+# 修復 Linux 4.9.170 dtc 編譯問題 - 更激進的方法
 RUN cd kernel-src && \
-    sed -i 's/^extern int yylloc;$//' scripts/dtc/dtc-lexer.lex.c_shipped && \
-    sed -i 's/^extern int yylloc;$//' scripts/dtc/dtc-parser.tab.c_shipped
+    sed -i 's/^extern int yylloc;$/extern YYLTYPE yylloc;/' scripts/dtc/dtc-lexer.lex.c_shipped && \
+    sed -i 's/^int yylloc;$//' scripts/dtc/dtc-parser.tab.c_shipped && \
+    sed -i '/^YYLTYPE.*yylloc/d' scripts/dtc/dtc-lexer.lex.c_shipped && \
+    echo 'YYLTYPE yylloc;' >> scripts/dtc/dtc-lexer.lex.c_shipped
 
-# 或者更直接的修復方法：移除重複的符號定義
+# 跳過 dtc 編譯
 RUN cd kernel-src && \
-    sed -i '/^YYLTYPE yylloc;/d' scripts/dtc/dtc-lexer.lex.c 2>/dev/null || true && \
-    sed -i '/^int yylloc;/d' scripts/dtc/dtc-parser.tab.c 2>/dev/null || true
+    touch scripts/dtc/dtc && \
+    chmod +x scripts/dtc/dtc
 
 RUN cd driver-src && \
     sed -i 's/ccflags-y += \${ccflags-y}/# Removed recursive ccflags-y/g' Makefile && \
