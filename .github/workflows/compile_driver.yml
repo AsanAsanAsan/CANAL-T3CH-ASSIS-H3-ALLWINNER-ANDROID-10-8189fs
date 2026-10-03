@@ -1,7 +1,7 @@
 name: Build Custom RTL8189FS for H3 4.9.170
 
 on:
-  workflow_dispatch: # 允許您在 GitHub 網頁上手動點擊按鈕觸發編譯
+  workflow_dispatch: # 允許手動點擊觸發
 
 jobs:
   build:
@@ -14,23 +14,19 @@ jobs:
     - name: Install Toolchain and Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y gcc-arm-linux-gnueabi build-essential git gcc bc bison flex libssl-dev
+        sudo apt-get install -y gcc-arm-linux-gnueabi build-essential git bc bison flex libssl-dev
 
     - name: Clone RTL8189FS Source
       run: |
-        # 複製社群維護最穩定、適配新版核心的驅動源碼
         git clone https://github.com -b rtl8189fs driver-src
 
-    - name: Download Allwinner H3 4.9.170 Kernel Tree (Headers only)
+    - name: Download Linux 4.9.170 Kernel Tree
       run: |
-        # 拉取全志標準的 4.9 內核基底來獲取編譯所需的 Makefile 框架
-        git clone --depth 1 https://github.com kernel-src -b master 2>/dev/null || true
-        # 由於 allwinner 4.9 的開源特性，我們直接在雲端用通用 4.9 核心模擬
+        # 抓取標準且穩定的 Linux 4.9 長期支援版核心樹進行簽名匹配
         git clone --depth 1 https://googlesource.com -b linux-4.9.y kernel-src
 
     - name: Inject User Module.symvers
       run: |
-        # 將您上傳的 Module.symvers 注入到內核與驅動樹中，完成基因匹配
         cp Module.symvers kernel-src/
         cp Module.symvers driver-src/
         cd kernel-src
@@ -40,7 +36,6 @@ jobs:
     - name: Compile the Driver Module
       run: |
         cd driver-src
-        # 執行交叉編譯，強制指向 4.9 核心路徑
         make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- KSRC=../kernel-src modules
 
     - name: Upload Compiled Driver (.ko)
