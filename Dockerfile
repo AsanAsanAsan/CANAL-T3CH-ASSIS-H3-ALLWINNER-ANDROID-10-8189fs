@@ -30,18 +30,18 @@ RUN wget -q -O linux-4.9.tar.xz \
 RUN cp Module.symvers kernel-src/ && \
     cp Module.symvers driver-src/
 
-# 直接跳過 dtc 編譯問題 - 建立虛擬 dtc 工具
+# 修復 dtc 編譯問題的根本方法 - 在源碼層級修復
 RUN cd kernel-src && \
-    mkdir -p scripts/dtc && \
-    echo '#!/bin/bash' > scripts/dtc/dtc && \
-    echo 'exit 0' >> scripts/dtc/dtc && \
-    chmod +x scripts/dtc/dtc
+    sed -i 's/^extern int yylloc;$/\/\/ extern int yylloc; \/\/ Fixed/' scripts/dtc/dtc-lexer.lex.c_shipped && \
+    sed -i 's/^int yylloc;$/static int yylloc;/' scripts/dtc/dtc-parser.tab.c_shipped
 
 RUN cd driver-src && \
     sed -i 's/ccflags-y += \${ccflags-y}/# Removed recursive ccflags-y/g' Makefile && \
     sed -i 's/EXTRA_CFLAGS += \${EXTRA_CFLAGS}/# Removed recursive EXTRA_CFLAGS/g' Makefile
 
+# 使用 clean 重新生成所有文件，確保修復被應用
 RUN cd kernel-src && \
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- distclean && \
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- defconfig && \
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- modules_prepare
 
