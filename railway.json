@@ -1,3 +1,4 @@
+json
 {
   "$schema": "https://railway.app",
   "build": {
@@ -7,4 +8,3 @@
   "deploy": {
     "numReplicas": 1
   }
-}
