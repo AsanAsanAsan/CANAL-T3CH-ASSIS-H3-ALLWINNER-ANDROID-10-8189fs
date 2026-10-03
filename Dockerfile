@@ -12,6 +12,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     ca-certificates \
     git \
     sed \
+    patch \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
@@ -30,18 +31,28 @@ RUN wget -q -O linux-4.9.tar.xz \
 RUN cp Module.symvers kernel-src/ && \
     cp Module.symvers driver-src/
 
-# 修復 dtc 編譯問題的根本方法 - 在源碼層級修復
+# 直接修改 lex 和 yacc 源文件 (不是 shipped 版本)
+# 修復 dtc-lexer.lex - 移除全局 yylloc 聲明
 RUN cd kernel-src && \
-    sed -i 's/^extern int yylloc;$/\/\/ extern int yylloc; \/\/ Fixed/' scripts/dtc/dtc-lexer.lex.c_shipped && \
-    sed -i 's/^int yylloc;$/static int yylloc;/' scripts/dtc/dtc-parser.tab.c_shipped
+    sed -i '/^int yylloc;$/d' scripts/dtc/dtc-lexer.lex && \
+    sed -i '/^YYLTYPE yylloc;$/d' scripts/dtc/dtc-lexer.lex
+
+# 修復 dtc-parser.tab - 將 yylloc 改成 static
+RUN cd kernel-src && \
+    sed -i 's/^int yylloc;$/static int yylloc;/' scripts/dtc/dtc-parser.tab.c && \
+    sed -i 's/^YYLTYPE yylloc;$/static YYLTYPE yylloc;/' scripts/dtc/dtc-parser.tab.c
+
+# 刪除 shipped 文件強制重新生成
+RUN cd kernel-src && \
+    rm -f scripts/dtc/dtc-lexer.lex.c_shipped && \
+    rm -f scripts/dtc/dtc-parser.tab.c_shipped && \
+    rm -f scripts/dtc/dtc-parser.tab.h_shipped
 
 RUN cd driver-src && \
     sed -i 's/ccflags-y += \${ccflags-y}/# Removed recursive ccflags-y/g' Makefile && \
     sed -i 's/EXTRA_CFLAGS += \${EXTRA_CFLAGS}/# Removed recursive EXTRA_CFLAGS/g' Makefile
 
-# 使用 clean 重新生成所有文件，確保修復被應用
 RUN cd kernel-src && \
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- distclean && \
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- defconfig && \
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- modules_prepare
 
