@@ -16,13 +16,15 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 
 WORKDIR /workspace
 
+# ✅ 使用從設備取出的正確 Module.symvers
 COPY Module.symvers .
 
 RUN git clone --branch rtl8189fs --depth 1 \
     https://github.com/jwrdegoede/rtl8189ES_linux.git driver-src
 
+# ✅ 改用 Linux 4.9.170（與設備完全相同）
 RUN wget -q -O linux-4.9.tar.xz \
-    https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.9.326.tar.xz && \
+    https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.9.170.tar.xz && \
     mkdir -p kernel-src && \
     tar -xf linux-4.9.tar.xz -C kernel-src --strip-components=1 && \
     rm linux-4.9.tar.xz
@@ -30,11 +32,10 @@ RUN wget -q -O linux-4.9.tar.xz \
 RUN cp Module.symvers kernel-src/ && \
     cp Module.symvers driver-src/
 
-# 檢查驅動源碼結構
-RUN ls -la /workspace/driver-src/ && \
-    find /workspace/driver-src -name "drv_types.h" -type f
+# 驗證 Module.symvers 已複製
+RUN echo "Verifying Module.symvers..." && \
+    ls -lh kernel-src/Module.symvers driver-src/Module.symvers
 
-# 修復 Makefile 中的遞迴變數問題
 RUN cd driver-src && \
     sed -i 's/ccflags-y += \${ccflags-y}/# Removed recursive ccflags-y/g' Makefile && \
     sed -i 's/EXTRA_CFLAGS += \${EXTRA_CFLAGS}/# Removed recursive EXTRA_CFLAGS/g' Makefile
@@ -43,13 +44,13 @@ RUN cd kernel-src && \
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- defconfig && \
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- modules_prepare
 
-# 編譯驅動 - 加入正確的 include 路徑
 RUN cd driver-src && \
     make ARCH=arm \
     CROSS_COMPILE=arm-linux-gnueabi- \
     KSRC=../kernel-src \
+    KBUILD_EXTRA_SYMBOLS=../kernel-src/Module.symvers \
     EXTRA_CFLAGS="-I$(pwd)" \
-    modules 2>&1 | tee /workspace/build.log
+    modules
 
 RUN mkdir -p /workspace/output && \
     find /workspace/driver-src -name "*.ko" -exec cp {} /workspace/output/ \; && \
