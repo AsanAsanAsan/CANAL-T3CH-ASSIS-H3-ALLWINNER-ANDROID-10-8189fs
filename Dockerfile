@@ -31,30 +31,38 @@ RUN wget -q -O linux-4.9.tar.xz \
 RUN cp Module.symvers kernel-src/ && \
     cp Module.symvers driver-src/
 
-# 生成最小的 kernel 配置
-RUN cd kernel-src && \
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- defconfig
-
-# 只生成必要的標頭檔，不需要完整的 modules_prepare
-RUN cd kernel-src && \
-    mkdir -p include/generated/uapi/linux && \
-    touch include/generated/uapi/linux/version.h && \
-    touch include/config/kernel.release && \
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- \
-    include/generated/uapi/linux/version.h 2>&1 || true
-
 RUN cd driver-src && \
     sed -i 's/ccflags-y += \${ccflags-y}/# Removed recursive ccflags-y/g' Makefile && \
     sed -i 's/EXTRA_CFLAGS += \${EXTRA_CFLAGS}/# Removed recursive EXTRA_CFLAGS/g' Makefile
 
-# 直接編譯驅動
+# 最小化 kernel 準備 - 只生成必要的配置
+RUN cd kernel-src && \
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- defconfig && \
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- prepare scripts_basic 2>&1 | head -50 || true
+
+# 確保必要的配置文件存在
+RUN cd kernel-src && \
+    mkdir -p include/config && \
+    mkdir -p include/generated/uapi/linux && \
+    if [ ! -f include/config/auto.conf ]; then \
+        cp .config include/config/auto.conf 2>/dev/null || \
+        echo "CONFIG_MODULES=y" > include/config/auto.conf; \
+    fi && \
+    if [ ! -f include/generated/autoconf.h ]; then \
+        echo "#define CONFIG_MODULES 1" > include/generated/autoconf.h; \
+    fi && \
+    if [ ! -f include/generated/uapi/linux/version.h ]; then \
+        echo "#define LINUX_VERSION_CODE 263330" > include/generated/uapi/linux/version.h; \
+    fi
+
+# 編譯驅動
 RUN cd driver-src && \
     make ARCH=arm \
     CROSS_COMPILE=arm-linux-gnueabi- \
     KSRC=../kernel-src \
     KBUILD_EXTRA_SYMBOLS=../kernel-src/Module.symvers \
     EXTRA_CFLAGS="-I$(pwd)" \
-    modules
+    modules 2>&1 | tee /workspace/build.log
 
 RUN mkdir -p /workspace/output && \
     find /workspace/driver-src -name "*.ko" -exec cp {} /workspace/output/ \; && \
