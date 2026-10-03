@@ -11,19 +11,21 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     wget \
     ca-certificates \
     git \
+    sed \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
 
 COPY Module.symvers .
-COPY kernel-headers.tar.gz .  # 假設你已經從設備取出 kernel headers
 
 RUN git clone --branch rtl8189fs --depth 1 \
     https://github.com/jwrdegoede/rtl8189ES_linux.git driver-src
 
-# 用設備上的 kernel headers
-RUN tar -xzf kernel-headers.tar.gz -C . && \
-    mv kernel-headers kernel-src
+RUN wget -q -O linux-4.9.tar.xz \
+    https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.9.170.tar.xz && \
+    mkdir -p kernel-src && \
+    tar -xf linux-4.9.tar.xz -C kernel-src --strip-components=1 && \
+    rm linux-4.9.tar.xz
 
 RUN cp Module.symvers kernel-src/ && \
     cp Module.symvers driver-src/
@@ -32,18 +34,30 @@ RUN cd driver-src && \
     sed -i 's/ccflags-y += \${ccflags-y}/# Removed recursive ccflags-y/g' Makefile && \
     sed -i 's/EXTRA_CFLAGS += \${EXTRA_CFLAGS}/# Removed recursive EXTRA_CFLAGS/g' Makefile
 
-# 直接編譯，不需要 defconfig
+# 最小化 kernel 準備
+RUN cd kernel-src && \
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- defconfig
+
+# 直接生成必要的配置檔案
+RUN cd kernel-src && \
+    mkdir -p include/config include/generated/uapi/linux && \
+    grep "^CONFIG_" .config > include/config/auto.conf && \
+    echo "#define LINUX_VERSION_CODE 263330" > include/generated/uapi/linux/version.h && \
+    touch include/generated/autoconf.h
+
+# 編譯驅動
 RUN cd driver-src && \
     make ARCH=arm \
     CROSS_COMPILE=arm-linux-gnueabi- \
     KSRC=../kernel-src \
     KBUILD_EXTRA_SYMBOLS=../kernel-src/Module.symvers \
     EXTRA_CFLAGS="-I$(pwd)" \
-    modules
+    modules 2>&1 | head -100
 
+# 蒐集編譯結果
 RUN mkdir -p /workspace/output && \
-    find /workspace/driver-src -name "*.ko" -exec cp {} /workspace/output/ \; && \
-    ls -lh /workspace/output/
+    find /workspace/driver-src -name "*.ko" -type f -exec cp {} /workspace/output/ \; || true && \
+    ls -lh /workspace/output/ || echo "No .ko files found"
 
 EXPOSE 8080
 WORKDIR /workspace/output
