@@ -30,7 +30,11 @@ RUN wget -q -O linux-4.9.tar.xz \
 RUN cp Module.symvers kernel-src/ && \
     cp Module.symvers driver-src/
 
-# 修復驅動 Makefile 中的遞迴變數問題
+# 檢查驅動源碼結構
+RUN ls -la /workspace/driver-src/ && \
+    find /workspace/driver-src -name "drv_types.h" -type f
+
+# 修復 Makefile 中的遞迴變數問題
 RUN cd driver-src && \
     sed -i 's/ccflags-y += \${ccflags-y}/# Removed recursive ccflags-y/g' Makefile && \
     sed -i 's/EXTRA_CFLAGS += \${EXTRA_CFLAGS}/# Removed recursive EXTRA_CFLAGS/g' Makefile
@@ -39,10 +43,13 @@ RUN cd kernel-src && \
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- defconfig && \
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- modules_prepare
 
-# 編譯時禁用遞迴變數展開
+# 編譯驅動 - 加入正確的 include 路徑
 RUN cd driver-src && \
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- KSRC=../kernel-src \
-    ccflags-y="" EXTRA_CFLAGS="" modules
+    make ARCH=arm \
+    CROSS_COMPILE=arm-linux-gnueabi- \
+    KSRC=../kernel-src \
+    EXTRA_CFLAGS="-I$(pwd)" \
+    modules 2>&1 | tee /workspace/build.log
 
 RUN mkdir -p /workspace/output && \
     find /workspace/driver-src -name "*.ko" -exec cp {} /workspace/output/ \; && \
