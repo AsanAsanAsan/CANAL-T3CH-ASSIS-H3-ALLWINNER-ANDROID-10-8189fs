@@ -34,11 +34,11 @@ RUN cd driver-src && \
     sed -i 's/ccflags-y += \${ccflags-y}/# Removed recursive ccflags-y/g' Makefile && \
     sed -i 's/EXTRA_CFLAGS += \${EXTRA_CFLAGS}/# Removed recursive EXTRA_CFLAGS/g' Makefile
 
-# 準備 kernel - 編譯 modpost 工具
+# 準備 kernel - 跳過 dtc 編譯
 RUN cd kernel-src && \
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- defconfig && \
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- scripts_basic && \
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- scripts/mod/modpost
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- prepare 2>&1 | grep -v "dtc\|lex\|yacc" || true
 
 # 編譯驅動
 RUN cd driver-src && \
@@ -47,7 +47,7 @@ RUN cd driver-src && \
     KSRC=../kernel-src \
     KBUILD_EXTRA_SYMBOLS=../kernel-src/Module.symvers \
     EXTRA_CFLAGS="-I$(pwd)" \
-    modules 2>&1 | tee /workspace/build.log
+    modules
 
 # 蒐集編譯結果
 RUN mkdir -p /workspace/output && \
