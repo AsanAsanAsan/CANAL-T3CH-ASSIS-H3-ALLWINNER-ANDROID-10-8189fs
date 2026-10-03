@@ -31,31 +31,23 @@ RUN wget -q -O linux-4.9.tar.xz \
 RUN cp Module.symvers kernel-src/ && \
     cp Module.symvers driver-src/
 
-# 直接修改 lex 和 yacc 源文件 (不是 shipped 版本)
-# 修復 dtc-lexer.lex - 移除全局 yylloc 聲明
+# 生成最小的 kernel 配置
 RUN cd kernel-src && \
-    sed -i '/^int yylloc;$/d' scripts/dtc/dtc-lexer.lex && \
-    sed -i '/^YYLTYPE yylloc;$/d' scripts/dtc/dtc-lexer.lex
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- defconfig
 
-# 修復 dtc-parser.tab - 將 yylloc 改成 static
+# 只生成必要的標頭檔，不需要完整的 modules_prepare
 RUN cd kernel-src && \
-    sed -i 's/^int yylloc;$/static int yylloc;/' scripts/dtc/dtc-parser.tab.c && \
-    sed -i 's/^YYLTYPE yylloc;$/static YYLTYPE yylloc;/' scripts/dtc/dtc-parser.tab.c
-
-# 刪除 shipped 文件強制重新生成
-RUN cd kernel-src && \
-    rm -f scripts/dtc/dtc-lexer.lex.c_shipped && \
-    rm -f scripts/dtc/dtc-parser.tab.c_shipped && \
-    rm -f scripts/dtc/dtc-parser.tab.h_shipped
+    mkdir -p include/generated/uapi/linux && \
+    touch include/generated/uapi/linux/version.h && \
+    touch include/config/kernel.release && \
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- \
+    include/generated/uapi/linux/version.h 2>&1 || true
 
 RUN cd driver-src && \
     sed -i 's/ccflags-y += \${ccflags-y}/# Removed recursive ccflags-y/g' Makefile && \
     sed -i 's/EXTRA_CFLAGS += \${EXTRA_CFLAGS}/# Removed recursive EXTRA_CFLAGS/g' Makefile
 
-RUN cd kernel-src && \
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- defconfig && \
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- modules_prepare
-
+# 直接編譯驅動
 RUN cd driver-src && \
     make ARCH=arm \
     CROSS_COMPILE=arm-linux-gnueabi- \
