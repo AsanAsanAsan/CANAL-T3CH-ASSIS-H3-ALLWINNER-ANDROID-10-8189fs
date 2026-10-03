@@ -12,7 +12,6 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     ca-certificates \
     git \
     sed \
-    patch \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
@@ -31,16 +30,11 @@ RUN wget -q -O linux-4.9.tar.xz \
 RUN cp Module.symvers kernel-src/ && \
     cp Module.symvers driver-src/
 
-# 修復 Linux 4.9.170 dtc 編譯問題 - 更激進的方法
+# 直接跳過 dtc 編譯問題 - 建立虛擬 dtc 工具
 RUN cd kernel-src && \
-    sed -i 's/^extern int yylloc;$/extern YYLTYPE yylloc;/' scripts/dtc/dtc-lexer.lex.c_shipped && \
-    sed -i 's/^int yylloc;$//' scripts/dtc/dtc-parser.tab.c_shipped && \
-    sed -i '/^YYLTYPE.*yylloc/d' scripts/dtc/dtc-lexer.lex.c_shipped && \
-    echo 'YYLTYPE yylloc;' >> scripts/dtc/dtc-lexer.lex.c_shipped
-
-# 跳過 dtc 編譯
-RUN cd kernel-src && \
-    touch scripts/dtc/dtc && \
+    mkdir -p scripts/dtc && \
+    echo '#!/bin/bash' > scripts/dtc/dtc && \
+    echo 'exit 0' >> scripts/dtc/dtc && \
     chmod +x scripts/dtc/dtc
 
 RUN cd driver-src && \
