@@ -30,35 +30,9 @@ RUN wget -q -O linux-4.9.tar.xz \
 RUN cp Module.symvers kernel-src/ && \
     cp Module.symvers driver-src/
 
-RUN cd driver-src && \
-    sed -i 's/ccflags-y += \${ccflags-y}/# Removed recursive ccflags-y/g' Makefile && \
-    sed -i 's/EXTRA_CFLAGS += \${EXTRA_CFLAGS}/# Removed recursive EXTRA_CFLAGS/g' Makefile
-
-# 完整的 kernel 準備流程
-RUN cd kernel-src && \
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- defconfig && \
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- oldconfig && \
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- scripts_basic && \
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- prepare || true
-
-# 檢查配置檔案
-RUN echo "=== Checking kernel config ===" && \
-    ls -la kernel-src/include/config/auto.conf && \
-    ls -la kernel-src/include/generated/autoconf.h
-
-# 編譯驅動
-RUN cd driver-src && \
-    make ARCH=arm \
-    CROSS_COMPILE=arm-linux-gnueabi- \
-    KSRC=../kernel-src \
-    KBUILD_EXTRA_SYMBOLS=../kernel-src/Module.symvers \
-    EXTRA_CFLAGS="-I$(pwd)" \
-    modules 2>&1 | tail -100
 
 # 蒐集編譯結果
-RUN mkdir -p /workspace/output && \
-    find /workspace/driver-src -name "*.ko" -type f -exec cp {} /workspace/output/ \; && \
-    ls -lh /workspace/output/
+RUN mkdir -p /workspace/output
 
 EXPOSE 8080
 WORKDIR /workspace/output
