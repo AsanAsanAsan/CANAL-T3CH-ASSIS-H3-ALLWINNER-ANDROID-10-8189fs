@@ -5,9 +5,6 @@ ARG KERNEL_URL=https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.9.170.tar.xz
 ARG DRIVER_URL=https://github.com/jwrdegoede/rtl8189ES_linux.git
 ARG DRIVER_BRANCH=rtl8189fs
 
-ENV ARCH=arm
-ENV CROSS_COMPILE=arm-linux-gnueabihf-
-
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     gcc-9-arm-linux-gnueabihf build-essential bc bison flex libssl-dev \
     python3 wget ca-certificates git sed xz-utils kmod file \
@@ -15,42 +12,48 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     && ln -sf /usr/bin/arm-linux-gnueabihf-gcc-9 /usr/local/bin/arm-linux-gnueabihf-gcc
 
 WORKDIR /workspace
-COPY Module.symvers kernel.config ./
+RUN mkdir -p /workspace/output
+COPY Module.symvers kernel.config platform_ARM_SUNnI_sdio.c ./
 
-# 1. 驅動原始碼（注意：你的 GitHub 倉庫沒有驅動，只有 Module.symvers）
+# 1. 驅動原始碼與核心樹
 RUN git clone --depth 1 -b ${DRIVER_BRANCH} ${DRIVER_URL} driver-src
-
-# 2. 核心樹
 RUN wget -q -O kernel.tar.xz ${KERNEL_URL} && \
     mkdir kernel-src && tar -xf kernel.tar.xz -C kernel-src --strip-components=1 && \
     rm kernel.tar.xz
 
-# 3. 套用盒子的 .config 與 Module.symvers（modpost 會從這裡取得 CRC）
+# 2. 準備核心：套用盒子的 .config 與 Module.symvers
+#    HOSTCC 必須寫在 make 命令列（用 ENV 會被核心 Makefile 蓋掉）
 RUN cd kernel-src && \
-    cp ../kernel.config .config && \
-    touch .scmversion && \
-    make olddefconfig && \
-    cp ../Module.symvers . && \
-    make modules_prepare && \
-    mkdir -p /workspace/output && \
-    grep -E "^CONFIG_(MODVERSIONS|MODULE_UNLOAD|SMP|PREEMPT|ARM_PATCH_PHYS_VIRT|CFG80211|MMC)=" .config \
-      > /workspace/output/config-check.txt; \
-    cat include/generated/utsrelease.h >> /workspace/output/config-check.txt; \
-    grep -E "sunxi_wlan|sunxi_mmc_rescan|cfg80211_scan_done" ../Module.symvers \
-      > /workspace/output/symbols-check.txt || true
+    cp ../kernel.config .config && touch .scmversion && \
+    ( make ARCH=arm olddefconfig && \
+      cp ../Module.symvers . && \
+      make ARCH=arm HOSTCC="gcc -fcommon" modules_prepare ) \
+      > /workspace/output/prepare.log 2>&1 ; \
+    tail -n 15 /workspace/output/prepare.log ; \
+    cp ../Module.symvers . ; true
 
-# 4. 編譯；失敗也不讓建置中斷，build.log 可下載查看
+# 3. 修補驅動：換平台檔、選平台、移除會造成遞迴的那一行
 RUN cd driver-src && \
+    cp ../platform_ARM_SUNnI_sdio.c platform/platform_ARM_SUNnI_sdio.c && \
     sed -i -E 's/^(CONFIG_PLATFORM_I386_PC)[[:space:]]*=.*/\1 = n/' Makefile && \
-    sed -i -E 's/^(CONFIG_PLATFORM_ARM_SUN8I)[[:space:]]*=.*/\1 = y/' Makefile && \
-    grep -E "^CONFIG_PLATFORM" Makefile > /workspace/output/platform-check.txt; \
-    ( make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- \
-        KSRC=/workspace/kernel-src KVER=4.9.170 modules 2>&1 \
-        | tee /workspace/output/build.log ) ; \
+    sed -i -E 's/^(CONFIG_PLATFORM_ARM_SUN8I_W5P1)[[:space:]]*=.*/\1 = y/' Makefile && \
+    sed -i -E 's/^EXTRA_CFLAGS \+= \$\(ccflags-y\)/# removed (recursive on 4.9): &/' Makefile && \
+    grep -E "^CONFIG_PLATFORM_(I386_PC|ARM_SUN8I)" Makefile > /workspace/output/platform-check.txt
+
+# 4. 編譯、瘦身、輸出（失敗也不中斷，看 build.log）
+RUN cd driver-src && \
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- \
+         KSRC=/workspace/kernel-src KVER=4.9.170 modules \
+         > /workspace/output/build.log 2>&1 ; \
+    tail -n 25 /workspace/output/build.log ; \
     for f in $(find . -name '*.ko'); do \
-        arm-linux-gnueabihf-strip --strip-debug $f; cp $f /workspace/output/; \
-    done; \
-    for f in /workspace/output/*.ko; do modinfo $f; done > /workspace/output/modinfo.txt 2>&1 || true
+        arm-linux-gnueabihf-strip --strip-debug $f ; cp $f /workspace/output/ ; \
+    done ; \
+    for f in /workspace/output/*.ko; do modinfo $f ; done \
+        > /workspace/output/modinfo.txt 2>&1 ; \
+    grep -E "sunxi_wlan|sunxi_mmc_rescan" /workspace/kernel-src/Module.symvers \
+        > /workspace/output/symbols-check.txt ; \
+    ls -l /workspace/output ; true
 
 EXPOSE 8080
 WORKDIR /workspace/output
